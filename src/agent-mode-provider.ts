@@ -15,6 +15,8 @@ export interface AgentTool {
 export class AgentModeChatProvider extends BaseChatProvider {
     private mcpService: McpService;
     private multiAgentOrchestrator: MultiAgentOrchestrator;
+    private lastResponse: string = '';
+    private lastRequest: string = '';
     private availableTools: AgentTool[] = [
         {
             name: 'read_file',
@@ -236,6 +238,14 @@ If user says "search for X" → You respond ONLY with:
 Parameters: {"query": "X", "filePattern": "**/*"}
 [/TOOL]
 
+COMPLEX ANALYSIS WORKFLOW:
+For comprehensive code reviews, project summaries, or complete analysis tasks, follow this systematic approach:
+1. Start with project structure ([TOOL: list_files])
+2. Read configuration files ([TOOL: read_file] for package.json, etc.)
+3. Analyze source code systematically 
+4. Synthesize findings into comprehensive documentation
+5. Create summary files using [TOOL: write_file]
+
 IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives instructions. When asked to do something, DO IT with tools.`;
 
         return systemPrompt;
@@ -275,6 +285,9 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
     protected async processUserMessage(message: string): Promise<void> {
         console.log('=== AGENT MODE DEBUG START ===');
         console.log('processUserMessage called with:', message);
+        
+        // Store the request for potential Copilot Chat integration
+        this.lastRequest = message;
         
         // Check if multi-agent processing is enabled and should be used
         const config = vscode.workspace.getConfiguration('codependent');
@@ -570,13 +583,96 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
     private enhanceMessageWithToolHints(message: string): string {
         const lowerMessage = message.toLowerCase();
         
-        // Directory/folder creation
-        if (lowerMessage.includes('create') && (lowerMessage.includes('folder') || lowerMessage.includes('directory'))) {
+        // PowerShell script creation (high priority check)
+        if (this.isPowerShellScriptRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants you to create a PowerShell script. You MUST use the create_file tool to create the .ps1 file:
+[TOOL: create_file]
+Parameters: {"filePath": "script-name.ps1", "content": "PowerShell script content here"}
+[/TOOL]
+
+Extract the script name from the user's request and generate appropriate PowerShell code for their requirements.`;
+        }
+
+        // Code generation and creation requests
+        if (this.isCodeGenerationRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants you to generate/create code or files. Follow this systematic approach:
+
+1. ANALYZE CONTEXT - First understand the existing codebase:
+[TOOL: list_files]
+Parameters: {"dirPath": "."}
+[/TOOL]
+
+2. READ CONFIGURATION - Understand project setup and dependencies:
+[TOOL: read_file]
+Parameters: {"filePath": "package.json"}
+[/TOOL]
+
+3. EXAMINE EXISTING CODE - Read relevant source files to understand patterns:
+[TOOL: list_files]
+Parameters: {"dirPath": "src"}
+[/TOOL]
+
+4. SEARCH FOR SIMILAR PATTERNS - Find existing implementations to follow:
+[TOOL: search_files]
+Parameters: {"query": "class|interface|function", "filePattern": "**/*.ts"}
+[/TOOL]
+
+5. CREATE THE CODE - Generate the requested code/files using write_file or create_file tools
+
+You MUST use tools to understand the codebase before generating code that fits the project structure and patterns.`;
+        }
+
+        // Code enhancement and improvement requests
+        if (this.isCodeEnhancementRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants to enhance/improve existing code. Follow this workflow:
+
+1. READ CURRENT IMPLEMENTATION - First examine the code to be enhanced:
+[TOOL: read_file]
+Parameters: {"filePath": "target-file-path"}
+[/TOOL]
+
+2. UNDERSTAND PROJECT CONTEXT - Check related files and dependencies:
+[TOOL: search_files]
+Parameters: {"query": "import|require|export", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+3. ANALYZE PATTERNS - Look for existing patterns and best practices:
+[TOOL: search_files]
+Parameters: {"query": "similar-functionality", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+4. IMPLEMENT IMPROVEMENTS - Create enhanced version using write_file tool
+
+You MUST read and understand the existing code before making improvements to ensure compatibility and consistency.`;
+        }
+
+        // Directory/folder creation - but NOT script creation
+        if (lowerMessage.includes('create') && (lowerMessage.includes('folder') || lowerMessage.includes('directory')) && 
+            !lowerMessage.includes('script') && !lowerMessage.includes('file') && !lowerMessage.includes('.ps') && 
+            !lowerMessage.includes('.sh') && !lowerMessage.includes('.bat') && !lowerMessage.includes('powershell')) {
             return `${message}
 
 IMPORTANT: The user wants you to actually create a directory. You MUST use the create_directory tool. Do not give instructions - actually create it using:
 [TOOL: create_directory]
 Parameters: {"dirPath": "directory-name-here"}
+[/TOOL]`;
+        }
+
+        // Script and file creation requests
+        if (lowerMessage.includes('create') && (lowerMessage.includes('script') || lowerMessage.includes('file') || 
+            lowerMessage.includes('.ps1') || lowerMessage.includes('.ps') || lowerMessage.includes('.sh') || 
+            lowerMessage.includes('.bat') || lowerMessage.includes('powershell') || lowerMessage.includes('bash'))) {
+            return `${message}
+
+IMPORTANT: The user wants you to create a script or file. You MUST use the create_file or write_file tool. Do not give instructions - actually create it:
+[TOOL: create_file]
+Parameters: {"filePath": "script-name-with-extension", "content": "script-content-here"}
 [/TOOL]`;
         }
         
@@ -601,6 +697,42 @@ IMPORTANT: The user wants you to actually list files. You MUST use the list_file
 IMPORTANT: The user wants you to actually search. You MUST use the search_files tool. Do not give suggestions - actually search using the tool.`;
         }
         
+        // Feature implementation requests
+        if (this.isFeatureImplementationRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants to implement a new feature. Follow this comprehensive approach:
+
+1. UNDERSTAND PROJECT ARCHITECTURE:
+[TOOL: list_files]
+Parameters: {"dirPath": "."}
+[/TOOL]
+
+2. READ PROJECT CONFIGURATION:
+[TOOL: read_file]
+Parameters: {"filePath": "package.json"}
+[/TOOL]
+
+3. EXAMINE SOURCE STRUCTURE:
+[TOOL: list_files]
+Parameters: {"dirPath": "src"}
+[/TOOL]
+
+4. FIND SIMILAR IMPLEMENTATIONS:
+[TOOL: search_files]
+Parameters: {"query": "class|service|provider", "filePattern": "**/*.ts"}
+[/TOOL]
+
+5. READ KEY ARCHITECTURAL FILES:
+[TOOL: read_file]
+Parameters: {"filePath": "src/extension.ts"}
+[/TOOL]
+
+6. IMPLEMENT THE FEATURE - Create necessary files and modify existing ones using write_file/create_file tools
+
+You must understand the existing architecture before implementing new features to ensure proper integration.`;
+        }
+        
         // Project analysis/extension requests
         if (lowerMessage.includes('extend') || lowerMessage.includes('analyze') || lowerMessage.includes('project') || lowerMessage.includes('mcp')) {
             return `${message}
@@ -621,6 +753,97 @@ Parameters: {"filePath": "package.json"}
 [/TOOL]`;
         }
         
+        // Code review and comprehensive analysis requests
+        if ((lowerMessage.includes('review') && lowerMessage.includes('code')) || 
+            (lowerMessage.includes('create') && lowerMessage.includes('summary')) ||
+            (lowerMessage.includes('summarize') && lowerMessage.includes('project')) ||
+            (lowerMessage.includes('comprehensive') && lowerMessage.includes('analysis'))) {
+            return `${message}
+
+IMPORTANT: The user wants a comprehensive code review and project analysis. You MUST follow this systematic approach:
+
+1. FIRST - List all files and directories to understand project structure:
+[TOOL: list_files]
+Parameters: {"dirPath": "."}
+[/TOOL]
+
+2. THEN - Read core configuration files:
+[TOOL: read_file]
+Parameters: {"filePath": "package.json"}
+[/TOOL]
+
+3. NEXT - List source code directory:
+[TOOL: list_files]
+Parameters: {"dirPath": "src"}
+[/TOOL]
+
+4. THEN - Read key implementation files (extension.ts, main components):
+[TOOL: read_file]
+Parameters: {"filePath": "src/extension.ts"}
+[/TOOL]
+
+5. ANALYZE - Read agent system files:
+[TOOL: list_files]
+Parameters: {"dirPath": "src/agents"}
+[/TOOL]
+
+6. DOCUMENT - After analyzing all components, create the comprehensive summary file using write_file tool.
+
+You must execute each tool step systematically and then synthesize all findings into a comprehensive project summary.`;
+        }
+
+        // Refactoring and optimization requests
+        if (this.isRefactoringRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants to refactor or optimize code. Follow this systematic approach:
+
+1. READ TARGET CODE - Examine the code to be refactored:
+[TOOL: read_file]
+Parameters: {"filePath": "target-file"}
+[/TOOL]
+
+2. UNDERSTAND DEPENDENCIES - Find all files that use this code:
+[TOOL: search_files]
+Parameters: {"query": "import.*target|require.*target", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+3. ANALYZE USAGE PATTERNS - See how the code is currently used:
+[TOOL: search_files]
+Parameters: {"query": "function-name|class-name", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+4. IMPLEMENT REFACTORING - Create improved version while maintaining compatibility
+
+You must understand all usage patterns before refactoring to ensure no breaking changes.`;
+        }
+
+        // Bug fixing and debugging requests
+        if (this.isBugFixRequest(lowerMessage)) {
+            return `${message}
+
+IMPORTANT: The user wants to fix bugs or debug code. Follow this diagnostic approach:
+
+1. READ PROBLEMATIC CODE - Examine the code with issues:
+[TOOL: read_file]
+Parameters: {"filePath": "problematic-file"}
+[/TOOL]
+
+2. SEARCH FOR ERROR PATTERNS - Look for common error sources:
+[TOOL: search_files]
+Parameters: {"query": "error|exception|try|catch", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+3. CHECK RELATED FILES - Examine dependencies and imports:
+[TOOL: search_files]
+Parameters: {"query": "import.*problematic-module", "filePattern": "**/*.{ts,js}"}
+[/TOOL]
+
+4. IMPLEMENT FIX - Apply the necessary corrections using write_file tool
+
+You must analyze the code thoroughly to identify the root cause before applying fixes.`;
+        }
+        
         // Workspace exploration requests
         if (lowerMessage.includes('what') && (lowerMessage.includes('files') || lowerMessage.includes('structure') || lowerMessage.includes('project'))) {
             return `${message}
@@ -632,6 +855,93 @@ Parameters: {"dirPath": "."}
         }
         
         return message;
+    }
+
+    /**
+     * Detect if the message is requesting PowerShell script creation
+     */
+    private isPowerShellScriptRequest(message: string): boolean {
+        const powershellKeywords = [
+            'powershell script', 'create powershell', '.ps1', '.ps',
+            'pwsh script', 'powershell file', 'ps1 script',
+            'write powershell', 'generate powershell'
+        ];
+        
+        return powershellKeywords.some(keyword => message.includes(keyword)) ||
+               (message.includes('create') && message.includes('script') && 
+                (message.includes('powershell') || message.includes('.ps')));
+    }
+
+    /**
+     * Detect if the message is requesting code generation
+     */
+    private isCodeGenerationRequest(message: string): boolean {
+        const codeGenKeywords = [
+            'generate code', 'create class', 'create function', 'create method',
+            'write code', 'implement class', 'implement function', 'build component',
+            'create component', 'generate component', 'write implementation',
+            'create service', 'implement service', 'build service', 'scaffold',
+            'create new file', 'generate new', 'write new', 'build new'
+        ];
+        
+        return codeGenKeywords.some(keyword => message.includes(keyword));
+    }
+
+    /**
+     * Detect if the message is requesting code enhancement/improvement
+     */
+    private isCodeEnhancementRequest(message: string): boolean {
+        const enhancementKeywords = [
+            'improve', 'enhance', 'optimize', 'better', 'upgrade',
+            'modernize', 'update', 'strengthen', 'polish', 'clean up',
+            'make better', 'add features', 'extend functionality',
+            'performance', 'efficiency', 'best practices'
+        ];
+        
+        return enhancementKeywords.some(keyword => message.includes(keyword)) &&
+               (message.includes('code') || message.includes('function') || message.includes('class'));
+    }
+
+    /**
+     * Detect if the message is requesting feature implementation
+     */
+    private isFeatureImplementationRequest(message: string): boolean {
+        const featureKeywords = [
+            'implement feature', 'add feature', 'build feature', 'create feature',
+            'new functionality', 'add functionality', 'implement system',
+            'build system', 'add capability', 'implement support',
+            'add integration', 'implement integration', 'add authentication',
+            'implement authentication', 'add api', 'implement api'
+        ];
+        
+        return featureKeywords.some(keyword => message.includes(keyword));
+    }
+
+    /**
+     * Detect if the message is requesting refactoring
+     */
+    private isRefactoringRequest(message: string): boolean {
+        const refactorKeywords = [
+            'refactor', 'restructure', 'reorganize', 'redesign',
+            'clean up', 'simplify', 'modularize', 'extract',
+            'split', 'separate', 'consolidate', 'merge'
+        ];
+        
+        return refactorKeywords.some(keyword => message.includes(keyword));
+    }
+
+    /**
+     * Detect if the message is requesting bug fixes
+     */
+    private isBugFixRequest(message: string): boolean {
+        const bugFixKeywords = [
+            'fix bug', 'fix error', 'fix issue', 'debug', 'troubleshoot',
+            'resolve error', 'solve problem', 'fix problem', 'repair',
+            'correct', 'address issue', 'handle error', 'exception',
+            'not working', 'broken', 'failing', 'crash'
+        ];
+        
+        return bugFixKeywords.some(keyword => message.includes(keyword));
     }
 
     private async executeTool(toolMatch: string): Promise<string> {
@@ -1082,5 +1392,44 @@ Parameters: {"dirPath": "."}
             <div class="quick-action" onclick="handleQuickAction('Refactor this code to improve readability')">Refactor Code</div>
             <div class="quick-action" onclick="handleQuickAction('Check for potential security issues')">Security Audit</div>
         `;
+    }
+
+    /**
+     * Get the last processed request and response for Copilot Chat integration
+     */
+    public getLastInteraction(): { request: string; response: string } {
+        return {
+            request: this.lastRequest,
+            response: this.lastResponse
+        };
+    }
+
+    /**
+     * Process a request and return the response for Copilot Chat integration
+     */
+    public async processRequestForCopilot(request: string): Promise<string> {
+        try {
+            // Store the request
+            this.lastRequest = request;
+            
+            // Process with our agent system
+            await this.processUserMessage(request);
+            
+            // Return the last response
+            return this.lastResponse;
+            
+        } catch (error) {
+            const errorMessage = `Error processing request: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            this.lastResponse = errorMessage;
+            return errorMessage;
+        }
+    }
+
+    protected async sendAssistantMessage(content: string): Promise<void> {
+        // Store the response for potential Copilot Chat integration
+        this.lastResponse = content;
+        
+        // Call the parent method to actually send the message
+        await super.sendAssistantMessage(content);
     }
 }

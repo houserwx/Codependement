@@ -49,6 +49,11 @@
         "command": "codependent.showMultiAgentStatus",
         "title": "Show Multi-Agent Status",
         "category": "CoDependement"
+      },
+      {
+        "command": "codependent.requestCopilotModification",
+        "title": "Request GitHub Copilot Chat Modification",
+        "category": "CoDependement"
       }
     ],
     "menus": {
@@ -64,6 +69,9 @@
         },
         {
           "command": "codependent.selectModel"
+        },
+        {
+          "command": "codependent.requestCopilotModification"
         }
       ]
     },

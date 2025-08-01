@@ -3,11 +3,13 @@ import { OllamaService } from './ollama-service';
 import { AskModeChatProvider } from './ask-mode-provider';
 import { AgentModeChatProvider } from './agent-mode-provider';
 import { GeneralChatProvider } from './general-chat-provider';
+import { CopilotChatService } from './copilot-chat-service';
 
 let ollamaService: OllamaService;
 let askModeProvider: AskModeChatProvider;
 let agentModeProvider: AgentModeChatProvider;
 let generalChatProvider: GeneralChatProvider;
+let copilotChatService: CopilotChatService;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('=== CoDependement extension ACTIVATION START ===');
@@ -19,6 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
     askModeProvider = new AskModeChatProvider(context);
     agentModeProvider = new AgentModeChatProvider(context);
     generalChatProvider = new GeneralChatProvider(context);
+    copilotChatService = new CopilotChatService();
 
     // Register commands
     const openChatCommand = vscode.commands.registerCommand('codependent.openChat', () => {
@@ -162,6 +165,85 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    const requestCopilotModificationCommand = vscode.commands.registerCommand('codependent.requestCopilotModification', async () => {
+        console.log('=== REQUEST COPILOT MODIFICATION COMMAND TRIGGERED ===');
+        try {
+            if (!copilotChatService.isAvailable()) {
+                vscode.window.showWarningMessage('GitHub Copilot Chat extension is not available or active. Please install and activate GitHub Copilot Chat first.');
+                return;
+            }
+
+            // Get user input for the request
+            const userRequest = await vscode.window.showInputBox({
+                prompt: 'Enter the request you want GitHub Copilot Chat to implement',
+                placeHolder: 'e.g., Create a new authentication service',
+                ignoreFocusOut: true
+            });
+
+            if (!userRequest) {
+                return;
+            }
+
+            // Show progress indicator
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Processing request with CoDependement agent...',
+                cancellable: false
+            }, async (progress) => {
+                try {
+                    // Step 1: Process the request with our agent system first
+                    progress.report({ message: 'Processing with CoDependement agents...' });
+                    
+                    if (!agentModeProvider) {
+                        throw new Error('Agent mode provider not initialized');
+                    }
+
+                    // Get our agent's actual response
+                    const agentResponse = await (agentModeProvider as any).processRequestForCopilot(userRequest);
+                    
+                    // Step 2: Get project context
+                    progress.report({ message: 'Gathering project context...' });
+                    const projectContext = await copilotChatService.getProjectContext();
+
+                    // Step 3: Extract modifications from agent response
+                    const modifications = extractModificationsFromResponse(agentResponse);
+
+                    // Step 4: Create the request for GitHub Copilot Chat
+                    const copilotRequest = copilotChatService.createRequest(
+                        userRequest,
+                        projectContext,
+                        agentResponse,
+                        modifications
+                    );
+
+                    // Step 5: Send to GitHub Copilot Chat
+                    progress.report({ message: 'Sending request to GitHub Copilot Chat...' });
+                    const response = await copilotChatService.requestModification(copilotRequest);
+
+                    if (response.success) {
+                        vscode.window.showInformationMessage(
+                            `Successfully sent request to GitHub Copilot Chat: ${response.response}`,
+                            'View Copilot Chat'
+                        ).then(selection => {
+                            if (selection === 'View Copilot Chat') {
+                                vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus');
+                            }
+                        });
+                    } else {
+                        vscode.window.showErrorMessage(`Failed to send request to GitHub Copilot Chat: ${response.error}`);
+                    }
+
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error processing request: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            });
+
+        } catch (error) {
+            console.error('Error in requestCopilotModification:', error);
+            vscode.window.showErrorMessage('Failed to process Copilot modification request');
+        }
+    });
+
     // Register configuration change handler
     const configChangeHandler = vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('codependent')) {
@@ -188,6 +270,7 @@ export function activate(context: vscode.ExtensionContext) {
         selectModelCommand,
         refreshMcpCommand,
         showMultiAgentStatusCommand,
+        requestCopilotModificationCommand,
         configChangeHandler,
         statusBarItem
     );
@@ -240,6 +323,111 @@ function showWelcomeMessage() {
                 break;
         }
     });
+}
+
+/**
+ * Simulate processing a request with our agent system to get the expected response
+ */
+async function simulateAgentProcessing(userRequest: string): Promise<string> {
+    try {
+        // This simulates what our agent would do
+        // In a real implementation, you might actually process the request with the agent
+        
+        let simulatedResponse = `CoDependement Agent Response for: "${userRequest}"\n\n`;
+        
+        // Analyze the request type and provide a simulated response
+        const lowerRequest = userRequest.toLowerCase();
+        
+        if (lowerRequest.includes('create') && lowerRequest.includes('service')) {
+            simulatedResponse += `I would create a service class with the following structure:
+1. Create a new TypeScript service class
+2. Implement proper dependency injection
+3. Add error handling and logging
+4. Create corresponding interfaces
+5. Add unit tests
+6. Update module exports`;
+            
+        } else if (lowerRequest.includes('implement') && lowerRequest.includes('authentication')) {
+            simulatedResponse += `I would implement authentication with:
+1. JWT token management
+2. User authentication middleware
+3. Route protection
+4. Token refresh mechanisms
+5. Logout functionality
+6. Security best practices`;
+            
+        } else if (lowerRequest.includes('add') && lowerRequest.includes('api')) {
+            simulatedResponse += `I would add API endpoints with:
+1. RESTful route definitions
+2. Request validation middleware
+3. Response formatting
+4. Error handling
+5. API documentation
+6. Integration tests`;
+            
+        } else if (lowerRequest.includes('create') && lowerRequest.includes('component')) {
+            simulatedResponse += `I would create a component with:
+1. Component class definition
+2. Template/JSX structure
+3. Styling (CSS/SCSS)
+4. Props/state management
+5. Event handlers
+6. Component tests`;
+            
+        } else {
+            simulatedResponse += `I would analyze the request and:
+1. Understand the requirements
+2. Plan the implementation approach
+3. Create necessary files and folders
+4. Implement the functionality
+5. Add appropriate tests
+6. Update documentation`;
+        }
+        
+        return simulatedResponse;
+        
+    } catch (error) {
+        console.error('Error simulating agent processing:', error);
+        return `Error processing request: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+}
+
+/**
+ * Extract specific modifications from the agent response
+ */
+function extractModificationsFromResponse(agentResponse: string): string[] {
+    const modifications: string[] = [];
+    
+    // Look for numbered lists or bullet points that indicate actions
+    const lines = agentResponse.split('\n');
+    
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        
+        // Match numbered items (1. 2. 3. etc.)
+        if (/^\d+\.\s/.test(trimmedLine)) {
+            modifications.push(trimmedLine.replace(/^\d+\.\s/, ''));
+        }
+        // Match bullet points (- * etc.)
+        else if (/^[-*]\s/.test(trimmedLine)) {
+            modifications.push(trimmedLine.replace(/^[-*]\s/, ''));
+        }
+        // Match action words at start of lines
+        else if (/^(create|add|implement|update|modify|delete|remove|install|configure)\s/i.test(trimmedLine)) {
+            modifications.push(trimmedLine);
+        }
+    }
+    
+    // If no specific modifications found, create generic ones based on the response
+    if (modifications.length === 0) {
+        modifications.push('Analyze the current project structure');
+        modifications.push('Implement the requested functionality');
+        modifications.push('Update existing code as needed');
+        modifications.push('Add appropriate tests');
+        modifications.push('Update documentation');
+    }
+    
+    return modifications;
 }
 
 export function deactivate() {
