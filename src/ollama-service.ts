@@ -49,6 +49,73 @@ export class OllamaService {
         return config.get<number>('maxTokens', 2048);
     }
 
+    private getContextBufferSize(): number {
+        const config = vscode.workspace.getConfiguration('codependent');
+        return config.get<number>('contextBufferSize', 32768);
+    }
+
+    private estimateTokenCount(text: string): number {
+        // Rough estimation: ~4 characters per token for most languages
+        // This is a simplified approach; in production, you might want to use a proper tokenizer
+        return Math.ceil(text.length / 4);
+    }
+
+    private estimateMessagesTokenCount(messages: OllamaMessage[]): number {
+        return messages.reduce((total, msg) => {
+            return total + this.estimateTokenCount(msg.content) + 10; // +10 for message overhead
+        }, 0);
+    }
+
+    private trimMessagesToContextBuffer(messages: OllamaMessage[]): OllamaMessage[] {
+        const contextBufferSize = this.getContextBufferSize();
+        const maxTokens = this.getMaxTokens();
+        
+        // Reserve space for the response
+        const availableTokens = contextBufferSize - maxTokens;
+        
+        if (availableTokens <= 0) {
+            console.warn('Context buffer size is too small for the max tokens setting');
+            return messages.slice(-1); // Return only the last message
+        }
+
+        // Always keep system messages (they're usually first)
+        const systemMessages = messages.filter(msg => msg.role === 'system');
+        const nonSystemMessages = messages.filter(msg => msg.role !== 'system');
+        
+        let systemTokens = this.estimateMessagesTokenCount(systemMessages);
+        let availableForConversation = availableTokens - systemTokens;
+        
+        if (availableForConversation <= 0) {
+            console.warn('System messages exceed context buffer size');
+            return systemMessages.slice(0, 1); // Keep only first system message
+        }
+
+        // Trim conversation messages from the beginning, keeping the most recent ones
+        const trimmedConversation: OllamaMessage[] = [];
+        let currentTokens = 0;
+        
+        // Process messages in reverse order to keep the most recent ones
+        for (let i = nonSystemMessages.length - 1; i >= 0; i--) {
+            const msg = nonSystemMessages[i];
+            const msgTokens = this.estimateTokenCount(msg.content) + 10;
+            
+            if (currentTokens + msgTokens <= availableForConversation) {
+                trimmedConversation.unshift(msg);
+                currentTokens += msgTokens;
+            } else {
+                break;
+            }
+        }
+
+        const result = [...systemMessages, ...trimmedConversation];
+        
+        // Log context management info
+        const totalTokens = this.estimateMessagesTokenCount(result);
+        console.log(`Context buffer: ${totalTokens}/${contextBufferSize} tokens (${messages.length} → ${result.length} messages)`);
+        
+        return result;
+    }
+
     async isOllamaAvailable(): Promise<boolean> {
         try {
             const response = await axios.get(`${this.baseUrl}/api/version`, {
@@ -77,16 +144,20 @@ export class OllamaService {
     async chat(messages: OllamaMessage[], model?: string): Promise<string> {
         const selectedModel = model || this.getDefaultModel();
         
+        // Trim messages to fit within context buffer
+        const trimmedMessages = this.trimMessagesToContextBuffer(messages);
+        
         try {
             const response: AxiosResponse<OllamaResponse> = await axios.post(
                 `${this.baseUrl}/api/chat`,
                 {
                     model: selectedModel,
-                    messages: messages,
+                    messages: trimmedMessages,
                     stream: false,
                     options: {
                         temperature: this.getTemperature(),
-                        num_predict: this.getMaxTokens()
+                        num_predict: this.getMaxTokens(),
+                        num_ctx: this.getContextBufferSize()
                     }
                 },
                 { timeout: this.timeout }
@@ -114,7 +185,8 @@ export class OllamaService {
                     stream: false,
                     options: {
                         temperature: this.getTemperature(),
-                        num_predict: this.getMaxTokens()
+                        num_predict: this.getMaxTokens(),
+                        num_ctx: this.getContextBufferSize()
                     }
                 },
                 { timeout: this.timeout }

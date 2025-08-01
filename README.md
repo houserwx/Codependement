@@ -1,13 +1,29 @@
 # Ollama Chat - VS Code Extension
 
-A powerful VS Code extension that enables seamless chat interactions with locally hosted Ollama LLM models. Features both simple Ask Mode and advanced Agent Mode with comprehensive workspace management capabilities.
+A powerful VS Code extension that enables seamless chat interactions with locally hosted Ollama LLM models. Features both simple Ask Mode and advanced Agent Mode with comprehensive workspace management capabilities and multi-agent coordination with research intelligence.
 
 ## 🚀 Features
 
 ### 🤖 Multiple Chat Modes
 - **Ask Mode**: Simple question-answer interactions for general queries
 - **Agent Mode**: Advanced AI assistant with file operations, code analysis, and workspace management
+- **Multi-Agent Mode**: Intelligent task coordination using specialized agents for complex workflows
 - **General Chat**: Intelligent mode switching based on query context
+
+### 🎯 Multi-Agent System
+- **Planner Agent**: Breaks down complex tasks into manageable subtasks
+- **Research Agent**: Leverages MCP servers to gather relevant information and context
+- **Coder Agent**: Handles implementation and code generation tasks
+- **Tester Agent**: Creates and executes tests for code validation
+- **Debugger Agent**: Identifies and resolves issues in code
+- **Documenter Agent**: Generates comprehensive documentation
+
+### 🔍 Research Intelligence
+- **MCP Integration**: Connects to Model Context Protocol servers for external data access
+- **Information Gathering**: Automatically researches relevant patterns, examples, and best practices
+- **Context Enhancement**: Provides research findings to other agents for informed decision-making
+- **Smart Caching**: Caches research results to improve performance
+- **Resource Discovery**: Finds and utilizes available documentation, code examples, and APIs
 
 ### 🔧 Agent Mode Capabilities
 - **File Operations**: Read, write, create, and search files in your workspace
@@ -16,6 +32,7 @@ A powerful VS Code extension that enables seamless chat interactions with locall
 - **Terminal Integration**: Execute commands and get system information
 - **Git Integration**: Check repository status and version control information
 - **Smart Context**: Understands your codebase and provides relevant suggestions
+- **MCP Tool Access**: Utilize external tools and resources via Model Context Protocol
 
 ### 🎨 User Experience
 - Clean, modern chat interface with VS Code theming
@@ -41,6 +58,53 @@ This extension contributes the following settings:
 - `ollama-chat.defaultModel`: Default model to use for chat (default: `llama2`)
 - `ollama-chat.temperature`: Temperature for model responses (default: `0.7`)
 - `ollama-chat.maxTokens`: Maximum tokens for model responses (default: `2048`)
+- `codependent.contextBufferSize`: Context buffer size for conversation history and agent memory (default: `32768` tokens)
+- `codependent.enableMultiAgent`: Enable multi-agent processing for complex tasks (default: `true`)
+- `codependent.enableMcp`: Enable MCP (Model Context Protocol) integration (default: `true`)
+- `codependent.mcpServers`: Array of MCP server configurations for research agent
+
+## 🔍 Research Commands
+
+The research agent can be activated using specific commands:
+
+- **"research [topic]"**: Gather information about a specific topic using available MCP servers
+- **"mcp status"**: Check the status of connected MCP servers and available tools
+- **"research status"**: Same as MCP status, shows research capabilities
+
+## 💡 Usage Examples
+
+### Multi-Agent Complex Tasks
+```
+implement a new REST API endpoint with tests and documentation
+```
+
+### Research-Driven Development
+```
+research best practices for TypeScript error handling and implement them
+```
+
+### MCP Integration
+```
+research mcp status
+research documentation patterns for VS Code extensions
+```
+
+## 🧠 Context Buffer Management
+
+The extension includes intelligent context buffer management to optimize performance with large conversations:
+
+### Features
+- **Automatic Context Trimming**: Keeps conversations within the configured context buffer size
+- **Smart Message Retention**: Preserves system messages and recent conversation history
+- **Visual Status Indicator**: Real-time context buffer usage display in the chat interface
+- **Configurable Buffer Size**: Adjustable context buffer (default: 32,768 tokens)
+
+### Visual Indicators
+- **Green**: Normal usage (0-60% of buffer)
+- **Yellow**: High usage (60-80% of buffer) 
+- **Red**: Near capacity (80%+ of buffer)
+
+The context buffer status shows current usage and helps you understand when conversations might be trimmed for optimal performance.
 
 ## 🚦 Getting Started
 

@@ -1,4 +1,5 @@
-import { Agent, AgentType, Task, PlannerAgent, CoderAgent, DebuggerAgent, TesterAgent, DocumenterAgent } from './agents';
+import { Agent, AgentType, Task, PlannerAgent, CoderAgent, DebuggerAgent, TesterAgent, DocumenterAgent, ResearchAgent } from './agents';
+import { McpService } from './mcp-service';
 
 export interface AgentExecutionResult {
     success: boolean;
@@ -21,8 +22,10 @@ export class MultiAgentOrchestrator {
     private activeTasks: Map<string, Task> = new Map();
     private executionHistory: AgentExecutionResult[] = [];
     private context: MultiAgentContext = {};
+    private mcpService: McpService;
 
-    constructor() {
+    constructor(mcpService?: McpService) {
+        this.mcpService = mcpService || new McpService();
         this.initializeAgents();
     }
 
@@ -32,14 +35,15 @@ export class MultiAgentOrchestrator {
             new CoderAgent(),
             new DebuggerAgent(),
             new TesterAgent(),
-            new DocumenterAgent()
+            new DocumenterAgent(),
+            new ResearchAgent(this.mcpService)
         ];
 
         for (const agent of agents) {
             this.agents.set(agent.agentType, agent);
         }
 
-        console.log(`Initialized ${this.agents.size} agents`);
+        console.log(`Initialized ${this.agents.size} agents with MCP service`);
     }
 
     public setContext(context: MultiAgentContext): void {
@@ -98,7 +102,10 @@ export class MultiAgentOrchestrator {
         
         for (const subtask of sortedSubtasks) {
             try {
-                const result = await this.executeAgentTask(subtask, subtask.assignedTo);
+                // Use research enhancement for non-research tasks
+                const result = subtask.assignedTo === AgentType.RESEARCHER 
+                    ? await this.executeAgentTask(subtask, subtask.assignedTo)
+                    : await this.executeAgentTaskWithResearch(subtask, subtask.assignedTo);
                 results.push(result);
                 
                 // If a high-priority task fails, consider stopping execution
@@ -234,10 +241,97 @@ export class MultiAgentOrchestrator {
         return response;
     }
 
+    /**
+     * Get research findings for a task
+     */
+    public async getResearchFindings(task: Task): Promise<string> {
+        const researchAgent = this.agents.get(AgentType.RESEARCHER) as ResearchAgent;
+        if (!researchAgent) {
+            return 'Research agent not available';
+        }
+
+        return await researchAgent.processTask(task, this.context);
+    }
+
+    /**
+     * Enhance an agent's task with research findings
+     */
+    public async enhanceTaskWithResearch(task: Task, targetAgent: AgentType): Promise<Task> {
+        const researchAgent = this.agents.get(AgentType.RESEARCHER) as ResearchAgent;
+        if (!researchAgent) {
+            console.log('Research agent not available, proceeding without research enhancement');
+            return task;
+        }
+
+        try {
+            console.log(`[Orchestrator] Enhancing task for ${targetAgent} with research findings`);
+            
+            // Get targeted research for the specific agent
+            const researchFindings = await researchAgent.supportAgent(targetAgent, task, this.context);
+            
+            // Add research findings to task context
+            if (!task.context) {
+                task.context = {};
+            }
+            task.context.researchFindings = researchFindings;
+            task.context.researchEnhanced = true;
+            
+            console.log(`[Orchestrator] Task enhanced with research findings for ${targetAgent}`);
+            return task;
+            
+        } catch (error) {
+            console.error(`[Orchestrator] Error enhancing task with research:`, error);
+            return task;
+        }
+    }
+
+    /**
+     * Execute task with research enhancement
+     */
+    private async executeAgentTaskWithResearch(task: Task, agentType: AgentType): Promise<AgentExecutionResult> {
+        // Skip research enhancement for the research agent itself
+        if (agentType === AgentType.RESEARCHER) {
+            return this.executeAgentTask(task, agentType);
+        }
+
+        // Enhance task with research if available
+        const enhancedTask = await this.enhanceTaskWithResearch(task, agentType);
+        
+        // Execute the enhanced task
+        return this.executeAgentTask(enhancedTask, agentType);
+    }
+
+    /**
+     * Get MCP service status
+     */
+    public getMcpStatus(): { connected: boolean; servers: string[]; tools: number; resources: number } {
+        const connectedServers = this.mcpService.getConnectedServers();
+        const tools = this.mcpService.getAllTools();
+        const resources = this.mcpService.getAllResources();
+
+        return {
+            connected: connectedServers.length > 0,
+            servers: connectedServers,
+            tools: tools.length,
+            resources: resources.length
+        };
+    }
+
+    /**
+     * Refresh MCP capabilities
+     */
+    public async refreshMcpCapabilities(): Promise<void> {
+        await this.mcpService.refreshAllCapabilities();
+        console.log('[Orchestrator] MCP capabilities refreshed');
+    }
+
     public dispose(): void {
         this.taskQueue.length = 0;
         this.activeTasks.clear();
         this.executionHistory.length = 0;
+        
+        // Disconnect from MCP service
+        this.mcpService.disconnect();
         console.log('Multi-agent orchestrator disposed');
     }
 }

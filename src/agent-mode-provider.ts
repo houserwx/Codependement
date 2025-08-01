@@ -4,6 +4,7 @@ import * as path from 'path';
 import { BaseChatProvider } from './base-chat-provider';
 import { McpService, McpTool } from './mcp-service';
 import { MultiAgentOrchestrator, MultiAgentContext } from './multi-agent-orchestrator';
+import { AgentType } from './agents';
 
 export interface AgentTool {
     name: string;
@@ -85,7 +86,7 @@ export class AgentModeChatProvider extends BaseChatProvider {
     constructor(context: vscode.ExtensionContext) {
         super(context, 'ollama-agent-mode', 'Ollama Agent Mode');
         this.mcpService = new McpService();
-        this.multiAgentOrchestrator = new MultiAgentOrchestrator();
+        this.multiAgentOrchestrator = new MultiAgentOrchestrator(this.mcpService);
         this.initializeMcpTools();
         this.initializeMultiAgentContext();
     }
@@ -304,7 +305,8 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
             'implement', 'create project', 'build application', 'develop system',
             'complex task', 'multi-step', 'full implementation', 'end-to-end',
             'architecture', 'design and implement', 'complete solution',
-            'test and debug', 'comprehensive', 'entire', 'whole project'
+            'test and debug', 'comprehensive', 'entire', 'whole project',
+            'research and implement', 'analyze and create', 'investigate and build'
         ];
         
         const lowerMessage = message.toLowerCase();
@@ -500,6 +502,20 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
 
     private async handleDirectAction(message: string): Promise<boolean> {
         const lowerMessage = message.toLowerCase();
+        
+        // Research agent commands
+        if (lowerMessage.includes('research') || lowerMessage.includes('gather information')) {
+            console.log('=== HANDLING RESEARCH REQUEST ===');
+            await this.handleResearchRequest(message);
+            return true;
+        }
+        
+        // MCP status command
+        if (lowerMessage.includes('mcp status') || lowerMessage.includes('research status')) {
+            console.log('=== HANDLING MCP STATUS REQUEST ===');
+            await this.handleMcpStatusRequest();
+            return true;
+        }
         
         // Direct project analysis for MCP/extension requests
         if ((lowerMessage.includes('extend') && lowerMessage.includes('project')) || 
@@ -969,6 +985,79 @@ Parameters: {"dirPath": "."}
             return `[MCP Tool Result from ${serverName}]\\n${JSON.stringify(result, null, 2)}`;
         } catch (error: any) {
             return `[Error executing MCP tool ${toolName}: ${error.message}]`;
+        }
+    }
+
+    /**
+     * Handle research requests
+     */
+    private async handleResearchRequest(message: string): Promise<void> {
+        try {
+            // Create a research task
+            const task = this.multiAgentOrchestrator.createTask(message, 'high');
+            task.assignedTo = AgentType.RESEARCHER;
+            
+            // Execute the research task
+            const results = await this.multiAgentOrchestrator.executeTask(task);
+            
+            // Format and send the response
+            let response = `## Research Results\n\n`;
+            
+            for (const result of results) {
+                if (result.agent === AgentType.RESEARCHER) {
+                    response += result.result;
+                    break;
+                }
+            }
+            
+            await this.sendAssistantMessage(response);
+            
+        } catch (error) {
+            console.error('Error handling research request:', error);
+            await this.sendAssistantMessage(`Research failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    /**
+     * Handle MCP status requests
+     */
+    private async handleMcpStatusRequest(): Promise<void> {
+        try {
+            const mcpStatus = this.multiAgentOrchestrator.getMcpStatus();
+            
+            let response = `## MCP Service Status\n\n`;
+            response += `**Connection Status:** ${mcpStatus.connected ? '✅ Connected' : '❌ Disconnected'}\n\n`;
+            response += `**Connected Servers:** ${mcpStatus.servers.length}\n`;
+            
+            if (mcpStatus.servers.length > 0) {
+                response += mcpStatus.servers.map(server => `- ${server}`).join('\n') + '\n\n';
+            }
+            
+            response += `**Available Tools:** ${mcpStatus.tools}\n`;
+            response += `**Available Resources:** ${mcpStatus.resources}\n\n`;
+            
+            if (mcpStatus.tools > 0) {
+                const tools = this.mcpService.getAllTools();
+                response += `**Tool Details:**\n`;
+                for (const { server, tool } of tools) {
+                    response += `- \`${tool.name}\` (${server}): ${tool.description}\n`;
+                }
+                response += '\n';
+            }
+            
+            if (mcpStatus.resources > 0) {
+                const resources = this.mcpService.getAllResources();
+                response += `**Resource Details:**\n`;
+                for (const { server, resource } of resources) {
+                    response += `- \`${resource.uri}\` (${server})\n`;
+                }
+            }
+            
+            await this.sendAssistantMessage(response);
+            
+        } catch (error) {
+            console.error('Error getting MCP status:', error);
+            await this.sendAssistantMessage(`Error getting MCP status: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 

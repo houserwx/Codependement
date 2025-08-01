@@ -89,6 +89,9 @@ export abstract class BaseChatProvider {
             type: 'modelUpdate',
             model: this.currentModel
         });
+
+        // Send initial context buffer status
+        this.sendContextBufferStatus();
     }
 
     private setupWebviewMessageHandling() {
@@ -146,8 +149,14 @@ export abstract class BaseChatProvider {
             message: userMessage
         });
 
+        // Send context buffer status update
+        this.sendContextBufferStatus();
+
         try {
             await this.processUserMessage(message);
+            
+            // Send updated context buffer status after processing
+            this.sendContextBufferStatus();
         } catch (error: any) {
             const errorMessage: ChatMessage = {
                 id: this.generateId(),
@@ -207,6 +216,9 @@ export abstract class BaseChatProvider {
         this.sendMessageToWebview({
             type: 'clearChat'
         });
+        
+        // Send updated context buffer status after clearing
+        this.sendContextBufferStatus();
     }
 
     private async exportChat() {
@@ -233,8 +245,42 @@ export abstract class BaseChatProvider {
         }
     }
 
+    protected sendContextBufferStatus() {
+        const bufferInfo = this.getContextBufferInfo();
+        this.sendMessageToWebview({
+            type: 'contextBufferStatus',
+            bufferInfo: bufferInfo
+        });
+    }
+
     protected generateId(): string {
         return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    }
+
+    protected getContextBufferInfo(): { total: number; used: number; available: number } {
+        const config = vscode.workspace.getConfiguration('codependent');
+        const contextBufferSize = config.get<number>('contextBufferSize', 32768);
+        const maxTokens = config.get<number>('maxTokens', 65536);
+        
+        // Rough token estimation for current messages
+        const systemPrompt = this.getSystemPrompt();
+        let usedTokens = 0;
+        
+        if (systemPrompt) {
+            usedTokens += Math.ceil(systemPrompt.length / 4) + 10;
+        }
+        
+        usedTokens += this.messages
+            .filter(msg => !msg.isError)
+            .reduce((total, msg) => total + Math.ceil(msg.content.length / 4) + 10, 0);
+        
+        const availableTokens = contextBufferSize - maxTokens - usedTokens;
+        
+        return {
+            total: contextBufferSize,
+            used: usedTokens,
+            available: Math.max(0, availableTokens)
+        };
     }
 
     protected convertToOllamaMessages(): OllamaMessage[] {
@@ -463,12 +509,48 @@ export abstract class BaseChatProvider {
                 .quick-action:hover {
                     background-color: var(--vscode-button-secondaryHoverBackground);
                 }
+
+                .context-buffer-status {
+                    font-size: 12px;
+                    color: var(--vscode-descriptionForeground);
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+
+                .context-buffer-bar {
+                    width: 100px;
+                    height: 4px;
+                    background-color: var(--vscode-panel-border);
+                    border-radius: 2px;
+                    overflow: hidden;
+                }
+
+                .context-buffer-fill {
+                    height: 100%;
+                    background-color: var(--vscode-progressBar-background);
+                    transition: width 0.3s ease;
+                }
+
+                .context-buffer-fill.warning {
+                    background-color: var(--vscode-inputValidation-warningBorder);
+                }
+
+                .context-buffer-fill.danger {
+                    background-color: var(--vscode-inputValidation-errorBorder);
+                }
             </style>
         </head>
         <body>
             <div class="header">
                 <div class="model-info">
-                    Model: <span id="current-model">Loading...</span>
+                    <div>Model: <span id="current-model">Loading...</span></div>
+                    <div class="context-buffer-status" id="context-buffer-status" style="display: none;">
+                        <span>Context: <span id="context-used">0</span>/<span id="context-total">0</span> tokens</span>
+                        <div class="context-buffer-bar">
+                            <div class="context-buffer-fill" id="context-buffer-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="controls">
                     <button class="btn" onclick="selectModel()">Change Model</button>
@@ -587,6 +669,35 @@ export abstract class BaseChatProvider {
                     document.getElementById('current-model').textContent = model;
                 }
 
+                function updateContextBufferStatus(bufferInfo) {
+                    const statusElement = document.getElementById('context-buffer-status');
+                    const usedElement = document.getElementById('context-used');
+                    const totalElement = document.getElementById('context-total');
+                    const fillElement = document.getElementById('context-buffer-fill');
+                    
+                    if (bufferInfo && bufferInfo.total > 0) {
+                        statusElement.style.display = 'flex';
+                        usedElement.textContent = bufferInfo.used.toLocaleString();
+                        totalElement.textContent = bufferInfo.total.toLocaleString();
+                        
+                        const percentage = (bufferInfo.used / bufferInfo.total) * 100;
+                        fillElement.style.width = percentage + '%';
+                        
+                        // Update color based on usage
+                        fillElement.className = 'context-buffer-fill';
+                        if (percentage > 80) {
+                            fillElement.classList.add('danger');
+                        } else if (percentage > 60) {
+                            fillElement.classList.add('warning');
+                        }
+                        
+                        // Add tooltip information
+                        statusElement.title = \`Used: \${bufferInfo.used} tokens\\nAvailable: \${bufferInfo.available} tokens\\nTotal: \${bufferInfo.total} tokens\`;
+                    } else {
+                        statusElement.style.display = 'none';
+                    }
+                }
+
                 function clearChatUI() {
                     const chatContainer = document.getElementById('chat-container');
                     chatContainer.innerHTML = \`
@@ -624,6 +735,9 @@ export abstract class BaseChatProvider {
                             break;
                         case 'clearChat':
                             clearChatUI();
+                            break;
+                        case 'contextBufferStatus':
+                            updateContextBufferStatus(data.bufferInfo);
                             break;
                     }
                 });

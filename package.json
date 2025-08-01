@@ -1,7 +1,7 @@
 {
   "name": "codependement",
   "displayName": "CoDependement",
-  "description": "Chat with locally hosted Ollama LLM models with ask and agent modes",
+  "description": "Chat with locally hosted Ollama LLM models with ask and agent modes, featuring multi-agent coordination with research capabilities via MCP servers",
   "version": "0.0.1",
   "publisher": "recurse-studios",
   "repository": {
@@ -89,8 +89,15 @@
         },
         "codependent.maxTokens": {
           "type": "number",
-          "default": 2048,
+          "default": 65536,
           "description": "Maximum tokens for model responses"
+        },
+        "codependent.contextBufferSize": {
+          "type": "number",
+          "default": 32768,
+          "minimum": 1024,
+          "maximum": 131072,
+          "description": "Context buffer size for conversation history and agent memory (in tokens)"
         },
         "codependent.mcpServers": {
           "type": "array",

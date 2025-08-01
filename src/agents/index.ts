@@ -12,6 +12,7 @@ export { CoderAgent } from './coder-agent';
 export { DebuggerAgent } from './debugger-agent';
 export { TesterAgent } from './tester-agent';
 export { DocumenterAgent } from './documenter-agent';
+export { ResearchAgent } from './research-agent';
 
 // Import for factory function
 import { AgentType } from './types';
@@ -21,9 +22,11 @@ import { CoderAgent } from './coder-agent';
 import { DebuggerAgent } from './debugger-agent';
 import { TesterAgent } from './tester-agent';
 import { DocumenterAgent } from './documenter-agent';
+import { ResearchAgent } from './research-agent';
+import { McpService } from '../mcp-service';
 
 // Agent factory function
-export function createAgent(type: AgentType): Agent {
+export function createAgent(type: AgentType, mcpService?: McpService): Agent {
     switch (type) {
         case AgentType.PLANNER:
             return new PlannerAgent();
@@ -35,6 +38,11 @@ export function createAgent(type: AgentType): Agent {
             return new TesterAgent();
         case AgentType.DOCUMENTER:
             return new DocumenterAgent();
+        case AgentType.RESEARCHER:
+            if (!mcpService) {
+                throw new Error('McpService is required for ResearchAgent');
+            }
+            return new ResearchAgent(mcpService);
         default:
             throw new Error(`Unknown agent type: ${type}`);
     }

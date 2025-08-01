@@ -7,7 +7,8 @@ export enum AgentType {
     CODER = "coder",
     DEBUGGER = "debugger",
     TESTER = "tester",
-    DOCUMENTER = "documenter"
+    DOCUMENTER = "documenter",
+    RESEARCHER = "researcher"
 }
 
 export interface Task {
