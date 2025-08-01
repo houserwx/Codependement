@@ -1,0 +1,115 @@
+{
+  "name": "codependement",
+  "displayName": "CoDependement",
+  "description": "Chat with locally hosted Ollama LLM models with ask and agent modes",
+  "version": "0.0.1",
+  "publisher": "recurse-studios",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codependent.openChat",
+        "title": "Open Chat",
+        "category": "CoDependement"
+      },
+      {
+        "command": "codependent.openAskMode",
+        "title": "Open Ask Mode",
+        "category": "CoDependement"
+      },
+      {
+        "command": "codependent.openAgentMode",
+        "title": "Open Agent Mode",
+        "category": "CoDependement"
+      },
+      {
+        "command": "codependent.selectModel",
+        "title": "Select Model",
+        "category": "CoDependement"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "codependent.openChat"
+        },
+        {
+          "command": "codependent.openAskMode"
+        },
+        {
+          "command": "codependent.openAgentMode"
+        },
+        {
+          "command": "codependent.selectModel"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CoDependement",
+      "properties": {
+        "codependent.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Base URL for Ollama API"
+        },
+        "codependent.defaultModel": {
+          "type": "string",
+          "default": "llama2",
+          "description": "Default model to use for chat"
+        },
+        "codependent.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Temperature for model responses"
+        },
+        "codependent.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "description": "Maximum tokens for model responses"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.14.4",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.102.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.3",
+    "eslint": "^9.25.1",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "axios": "^1.11.0"
+  }
+}
