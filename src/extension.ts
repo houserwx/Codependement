@@ -10,7 +10,9 @@ let agentModeProvider: AgentModeChatProvider;
 let generalChatProvider: GeneralChatProvider;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('CoDependement extension is now active!');
+    console.log('=== CoDependement extension ACTIVATION START ===');
+    console.log('Extension context:', context);
+    console.log('=== CoDependement extension is now active! ===');
 
     // Initialize services
     ollamaService = new OllamaService();
@@ -20,15 +22,36 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register commands
     const openChatCommand = vscode.commands.registerCommand('codependent.openChat', () => {
+        console.log('=== OPEN CHAT COMMAND TRIGGERED ===');
         generalChatProvider.show();
     });
 
     const openAskModeCommand = vscode.commands.registerCommand('codependent.openAskMode', () => {
+        console.log('=== OPEN ASK MODE COMMAND TRIGGERED ===');
         askModeProvider.show();
     });
 
     const openAgentModeCommand = vscode.commands.registerCommand('codependent.openAgentMode', () => {
+        console.log('=== OPEN AGENT MODE COMMAND TRIGGERED ===');
         agentModeProvider.show();
+    });
+
+    // Add a test command for debugging
+    const testDirectoryCreationCommand = vscode.commands.registerCommand('codependent.testDirectoryCreation', async () => {
+        console.log('=== TESTING DIRECTORY CREATION ===');
+        try {
+            // Test the agent mode processing directly
+            const testMessage = 'create a folder called subagents';
+            console.log('Testing with message:', testMessage);
+            
+            // Create a temporary message to test the processing
+            await agentModeProvider.show();
+            
+            vscode.window.showInformationMessage('Check the console for debug logs, then try creating "subagents" folder in the Agent Mode webview.');
+        } catch (error) {
+            console.error('Test failed:', error);
+            vscode.window.showErrorMessage(`Test failed: ${error}`);
+        }
     });
 
     const selectModelCommand = vscode.commands.registerCommand('codependent.selectModel', async () => {
@@ -85,6 +108,60 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    const refreshMcpCommand = vscode.commands.registerCommand('codependent.refreshMcp', async () => {
+        console.log('=== REFRESH MCP COMMAND TRIGGERED ===');
+        try {
+            if (agentModeProvider) {
+                await (agentModeProvider as any).refreshAvailableTools();
+                vscode.window.showInformationMessage('MCP tools refreshed successfully');
+            }
+        } catch (error) {
+            console.error('Error refreshing MCP tools:', error);
+            vscode.window.showErrorMessage('Failed to refresh MCP tools');
+        }
+    });
+
+    const showMultiAgentStatusCommand = vscode.commands.registerCommand('codependent.showMultiAgentStatus', async () => {
+        console.log('=== SHOW MULTI-AGENT STATUS COMMAND TRIGGERED ===');
+        try {
+            if (agentModeProvider) {
+                const orchestrator = (agentModeProvider as any).multiAgentOrchestrator;
+                if (orchestrator) {
+                    const activeTasks = orchestrator.getActiveTasks();
+                    const history = orchestrator.getExecutionHistory();
+                    const agentStatus = orchestrator.getAgentStatus();
+                    
+                    let statusMessage = '🤖 **Multi-Agent System Status**\n\n';
+                    
+                    // Active tasks
+                    statusMessage += `**Active Tasks:** ${activeTasks.length}\n`;
+                    activeTasks.forEach((task: any) => {
+                        statusMessage += `- ${task.description} (${task.status})\n`;
+                    });
+                    
+                    // Agent status
+                    statusMessage += '\n**Agents:**\n';
+                    agentStatus.forEach((isActive: boolean, agentType: string) => {
+                        statusMessage += `- ${agentType}: ${isActive ? '🟢 Active' : '⚪ Idle'}\n`;
+                    });
+                    
+                    // Recent history
+                    statusMessage += `\n**Recent Executions:** ${history.slice(-5).length}\n`;
+                    history.slice(-5).forEach((result: any) => {
+                        statusMessage += `- [${result.agent}] ${result.success ? '✅' : '❌'} ${result.task.description.substring(0, 50)}...\n`;
+                    });
+                    
+                    vscode.window.showInformationMessage(statusMessage, { modal: true });
+                } else {
+                    vscode.window.showWarningMessage('Multi-agent orchestrator not initialized');
+                }
+            }
+        } catch (error) {
+            console.error('Error showing multi-agent status:', error);
+            vscode.window.showErrorMessage('Failed to get multi-agent status');
+        }
+    });
+
     // Register configuration change handler
     const configChangeHandler = vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('codependent')) {
@@ -107,7 +184,10 @@ export function activate(context: vscode.ExtensionContext) {
         openChatCommand,
         openAskModeCommand,
         openAgentModeCommand,
+        testDirectoryCreationCommand,
         selectModelCommand,
+        refreshMcpCommand,
+        showMultiAgentStatusCommand,
         configChangeHandler,
         statusBarItem
     );
@@ -163,5 +243,9 @@ function showWelcomeMessage() {
 }
 
 export function deactivate() {
-    // Cleanup resources if needed
+    console.log('=== CoDependement extension DEACTIVATION ===');
+    // Cleanup MCP service and other resources
+    if (agentModeProvider) {
+        agentModeProvider.dispose();
+    }
 }

@@ -41,13 +41,19 @@ export abstract class BaseChatProvider {
     protected abstract processUserMessage(message: string): Promise<void>;
 
     public async show() {
+        console.log('=== BaseChatProvider.show() called ===');
+        console.log('Panel exists:', !!this.panel);
+        
         if (this.panel) {
+            console.log('Revealing existing panel');
             this.panel.reveal(vscode.ViewColumn.Two);
             return;
         }
 
+        console.log('Creating new panel...');
         // Check if Ollama is available
         const isAvailable = await this.ollamaService.isOllamaAvailable();
+        console.log('Ollama available:', isAvailable);
         if (!isAvailable) {
             vscode.window.showErrorMessage(
                 'Ollama is not available. Please make sure Ollama is installed and running.',
@@ -88,19 +94,26 @@ export abstract class BaseChatProvider {
     private setupWebviewMessageHandling() {
         if (!this.panel) {return;}
 
+        console.log('=== Setting up webview message handling ===');
+        
         this.panel.webview.onDidReceiveMessage(
             async (data) => {
+                console.log('=== WEBVIEW MESSAGE RECEIVED ===', data);
                 switch (data.type) {
                     case 'userMessage':
+                        console.log('Processing user message:', data.message);
                         await this.handleUserMessage(data.message);
                         break;
                     case 'selectModel':
+                        console.log('Handling model selection');
                         await this.handleModelSelection();
                         break;
                     case 'clearChat':
+                        console.log('Clearing chat');
                         this.clearChat();
                         break;
                     case 'exportChat':
+                        console.log('Exporting chat');
                         await this.exportChat();
                         break;
                 }
@@ -108,6 +121,8 @@ export abstract class BaseChatProvider {
             undefined,
             this.context.subscriptions
         );
+        
+        console.log('=== Webview message handling setup complete ===');
     }
 
     private async handleUserMessage(message: string) {

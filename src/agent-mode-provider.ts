@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseChatProvider } from './base-chat-provider';
+import { McpService, McpTool } from './mcp-service';
+import { MultiAgentOrchestrator, MultiAgentContext } from './multi-agent-orchestrator';
 
 export interface AgentTool {
     name: string;
@@ -10,6 +12,8 @@ export interface AgentTool {
 }
 
 export class AgentModeChatProvider extends BaseChatProvider {
+    private mcpService: McpService;
+    private multiAgentOrchestrator: MultiAgentOrchestrator;
     private availableTools: AgentTool[] = [
         {
             name: 'read_file',
@@ -80,6 +84,94 @@ export class AgentModeChatProvider extends BaseChatProvider {
 
     constructor(context: vscode.ExtensionContext) {
         super(context, 'ollama-agent-mode', 'Ollama Agent Mode');
+        this.mcpService = new McpService();
+        this.multiAgentOrchestrator = new MultiAgentOrchestrator();
+        this.initializeMcpTools();
+        this.initializeMultiAgentContext();
+    }
+
+    private async initializeMcpTools() {
+        // Give MCP service time to initialize
+        setTimeout(() => {
+            this.refreshAvailableTools();
+        }, 2000);
+    }
+
+    private initializeMultiAgentContext() {
+        // Set up context for multi-agent system
+        const workspaceInfo = this.getWorkspaceContext();
+        const context: MultiAgentContext = {
+            workspaceInfo,
+            currentFiles: this.getCurrentOpenFiles(),
+            projectType: this.detectProjectType(),
+            userPreferences: this.getUserPreferences()
+        };
+        
+        this.multiAgentOrchestrator.setContext(context);
+        console.log('Multi-agent context initialized:', context);
+    }
+
+    private getCurrentOpenFiles(): string[] {
+        return vscode.window.tabGroups.all.flatMap(group => 
+            group.tabs.filter(tab => tab.input instanceof vscode.TabInputText)
+                .map(tab => (tab.input as vscode.TabInputText).uri.fsPath)
+        );
+    }
+
+    private detectProjectType(): string {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return 'unknown';
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+        
+        // Check for common project files
+        if (fs.existsSync(path.join(rootPath, 'package.json'))) {
+            return 'nodejs';
+        } else if (fs.existsSync(path.join(rootPath, 'requirements.txt')) || fs.existsSync(path.join(rootPath, 'setup.py'))) {
+            return 'python';
+        } else if (fs.existsSync(path.join(rootPath, 'Cargo.toml'))) {
+            return 'rust';
+        } else if (fs.existsSync(path.join(rootPath, 'go.mod'))) {
+            return 'go';
+        } else if (fs.existsSync(path.join(rootPath, 'pom.xml'))) {
+            return 'java';
+        } else {
+            return 'generic';
+        }
+    }
+
+    private getUserPreferences(): any {
+        const config = vscode.workspace.getConfiguration('codependent');
+        return {
+            preferredModel: config.get('defaultModel', 'llama2'),
+            enableMultiAgent: config.get('enableMultiAgent', true),
+            agentCollaboration: config.get('agentCollaboration', 'sequential')
+        };
+    }
+
+    private refreshAvailableTools() {
+        // Get MCP tools and add them to available tools
+        const mcpTools = this.mcpService.getAllTools();
+        
+        for (const { server, tool } of mcpTools) {
+            const agentTool: AgentTool = {
+                name: `mcp_${server}_${tool.name}`,
+                description: `[MCP ${server}] ${tool.description}`,
+                parameters: tool.inputSchema
+            };
+            
+            // Check if tool already exists
+            const existingIndex = this.availableTools.findIndex(t => t.name === agentTool.name);
+            if (existingIndex >= 0) {
+                this.availableTools[existingIndex] = agentTool;
+            } else {
+                this.availableTools.push(agentTool);
+            }
+        }
+        
+        console.log(`Updated available tools: ${this.availableTools.length} total, ${mcpTools.length} from MCP`);
     }
 
     protected getSystemPrompt(): string {
@@ -88,14 +180,32 @@ export class AgentModeChatProvider extends BaseChatProvider {
             `- ${tool.name}: ${tool.description}`
         ).join('\\n');
 
-        return `You are an advanced AI coding assistant with access to powerful tools for workspace management and code analysis. 
+        const config = vscode.workspace.getConfiguration('codependent');
+        const enableMultiAgent = config.get<boolean>('enableMultiAgent', true);
+
+        let systemPrompt = `You are an advanced AI coding assistant with access to powerful tools for workspace management and code analysis. 
 You MUST use tools to perform actual file operations and workspace analysis when requested.
 
 WORKSPACE CONTEXT:
 ${workspaceInfo}
 
 AVAILABLE TOOLS:
-${toolsDescription}
+${toolsDescription}`;
+
+        if (enableMultiAgent) {
+            systemPrompt += `
+
+🤖 **MULTI-AGENT SYSTEM AVAILABLE**: For complex tasks involving multiple steps (like "implement a complete authentication system" or "create a full project"), the system will automatically coordinate specialized agents:
+- **Planner**: Breaks down complex tasks into manageable subtasks
+- **Coder**: Implements code solutions and writes functionality
+- **Debugger**: Identifies and fixes issues in code
+- **Tester**: Creates and runs tests to validate functionality  
+- **Documenter**: Creates comprehensive documentation
+
+The multi-agent system automatically activates for complex, multi-step requests.`;
+        }
+
+        systemPrompt += `
 
 CRITICAL: When users ask you to perform actions like creating files/folders, reading files, listing directories, or searching, you MUST respond with the exact tool syntax below. Do not provide manual instructions or explanations - just use the tools.
 
@@ -126,6 +236,8 @@ Parameters: {"query": "X", "filePattern": "**/*"}
 [/TOOL]
 
 IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives instructions. When asked to do something, DO IT with tools.`;
+
+        return systemPrompt;
     }
 
     private getWorkspaceContext(): string {
@@ -162,6 +274,106 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
     protected async processUserMessage(message: string): Promise<void> {
         console.log('=== AGENT MODE DEBUG START ===');
         console.log('processUserMessage called with:', message);
+        
+        // Check if multi-agent processing is enabled and should be used
+        const config = vscode.workspace.getConfiguration('codependent');
+        const enableMultiAgent = config.get<boolean>('enableMultiAgent', true);
+        const useMultiAgentForComplexTasks = this.shouldUseMultiAgent(message);
+        
+        if (enableMultiAgent && useMultiAgentForComplexTasks) {
+            console.log('Using multi-agent processing for complex task');
+            await this.processWithMultiAgent(message);
+            console.log('=== AGENT MODE DEBUG END (MULTI-AGENT PROCESSED) ===');
+            return;
+        }
+        
+        // Check if this is an action request that should be handled directly
+        const directAction = await this.handleDirectAction(message);
+        if (directAction) {
+            console.log('=== AGENT MODE DEBUG END (DIRECT ACTION HANDLED) ===');
+            return;
+        }
+        
+        // Continue with standard processing...
+        await this.processWithStandardAgent(message);
+        console.log('=== AGENT MODE DEBUG END ===');
+    }
+
+    private shouldUseMultiAgent(message: string): boolean {
+        const multiAgentKeywords = [
+            'implement', 'create project', 'build application', 'develop system',
+            'complex task', 'multi-step', 'full implementation', 'end-to-end',
+            'architecture', 'design and implement', 'complete solution',
+            'test and debug', 'comprehensive', 'entire', 'whole project'
+        ];
+        
+        const lowerMessage = message.toLowerCase();
+        return multiAgentKeywords.some(keyword => lowerMessage.includes(keyword));
+    }
+
+    private async processWithMultiAgent(message: string): Promise<void> {
+        try {
+            // Update context with current state
+            this.multiAgentOrchestrator.setContext({
+                workspaceInfo: this.getWorkspaceContext(),
+                currentFiles: this.getCurrentOpenFiles(),
+                projectType: this.detectProjectType(),
+                userPreferences: this.getUserPreferences()
+            });
+
+            // Add a status message to show multi-agent processing is starting
+            const statusMessage = {
+                id: Date.now().toString(),
+                role: 'assistant' as const,
+                content: `🤖 **Multi-Agent Processing Initiated**\n\nAnalyzing your request with specialized agents...\n\n`,
+                timestamp: new Date()
+            };
+            this.messages.push(statusMessage);
+            if (this.panel) {
+                this.panel.webview.postMessage({ 
+                    type: 'addMessage', 
+                    message: statusMessage 
+                });
+            }
+
+            // Process the request with multi-agent system
+            const result = await this.multiAgentOrchestrator.processUserRequest(message);
+            
+            const resultMessage = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant' as const,
+                content: result,
+                timestamp: new Date()
+            };
+            this.messages.push(resultMessage);
+            if (this.panel) {
+                this.panel.webview.postMessage({ 
+                    type: 'addMessage', 
+                    message: resultMessage 
+                });
+            }
+        } catch (error) {
+            console.error('Multi-agent processing error:', error);
+            const errorMessage = {
+                id: (Date.now() + 2).toString(),  
+                role: 'assistant' as const,
+                content: `❌ Multi-agent processing failed: ${error}\n\nFalling back to standard processing...`,
+                timestamp: new Date()
+            };
+            this.messages.push(errorMessage);
+            if (this.panel) {
+                this.panel.webview.postMessage({ 
+                    type: 'addMessage', 
+                    message: errorMessage 
+                });
+            }
+            
+            // Fall back to standard processing
+            await this.processWithStandardAgent(message);
+        }
+    }
+
+    private async processWithStandardAgent(message: string): Promise<void> {
         
         // Pre-process the message to force tool usage for common requests
         const enhancedMessage = this.enhanceMessageWithToolHints(message);
@@ -208,7 +420,8 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
                 await this.sendAssistantMessage(processedResponse);
             } else {
                 console.log('No tools found in response, checking for fallback...');
-                // If we expected a tool but didn't get one, let's try to force it
+                
+                // Directory creation fallback
                 if (message.toLowerCase().includes('create') && (message.toLowerCase().includes('folder') || message.toLowerCase().includes('directory'))) {
                     console.log('Detected directory creation request but no tool usage - forcing tool execution');
                     const dirName = this.extractDirectoryName(message);
@@ -222,6 +435,40 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
                         return;
                     }
                 }
+                
+                // Project analysis fallback - force workspace exploration
+                if (message.toLowerCase().includes('extend') || message.toLowerCase().includes('analyze') || 
+                    message.toLowerCase().includes('project') || message.toLowerCase().includes('mcp')) {
+                    console.log('Detected project analysis request but no tool usage - forcing exploration');
+                    
+                    let explorationResult = '';
+                    
+                    // List project structure
+                    console.log('Executing listFiles fallback for project root');
+                    const filesList = await this.listFiles({ dirPath: '.' });
+                    explorationResult += `Project Structure:\n${filesList}\n\n`;
+                    
+                    // Read package.json if it exists
+                    try {
+                        console.log('Executing readFile fallback for package.json');
+                        const packageContent = await this.readFile({ filePath: 'package.json' });
+                        explorationResult += `Package.json Contents:\n${packageContent}\n\n`;
+                    } catch (error) {
+                        console.log('No package.json found or error reading it');
+                    }
+                    
+                    // Search for MCP-related content
+                    console.log('Executing searchFiles fallback for MCP-related content');
+                    const mcpSearch = await this.searchFiles({ query: 'mcp', filePattern: '**/*' });
+                    explorationResult += `MCP-related files/content:\n${mcpSearch}\n\n`;
+                    
+                    const analysisResponse = `I've analyzed your project to help with extending it for MCP servers:\n\n${explorationResult}Based on this analysis, I can help you integrate MCP servers. What specific MCP functionality would you like to add?`;
+                    
+                    await this.sendAssistantMessage(analysisResponse);
+                    console.log('=== AGENT MODE DEBUG END (PROJECT ANALYSIS FALLBACK) ===');
+                    return;
+                }
+                
                 console.log('No fallback triggered, sending original response');
                 await this.sendAssistantMessage(response);
             }
@@ -251,10 +498,63 @@ IMPORTANT: You are a hands-on developer who USES TOOLS, not a chatbot who gives 
         return null;
     }
 
+    private async handleDirectAction(message: string): Promise<boolean> {
+        const lowerMessage = message.toLowerCase();
+        
+        // Direct project analysis for MCP/extension requests
+        if ((lowerMessage.includes('extend') && lowerMessage.includes('project')) || 
+            lowerMessage.includes('mcp')) {
+            
+            console.log('=== HANDLING DIRECT PROJECT ANALYSIS ACTION ===');
+            
+            let analysisResult = 'I\'ve analyzed your project for MCP integration:\n\n';
+            
+            try {
+                // 1. Examine project structure
+                console.log('Analyzing project structure...');
+                const projectFiles = await this.listFiles({ dirPath: '.' });
+                analysisResult += `**Project Structure:**\n${projectFiles}\n\n`;
+                
+                // 2. Read package.json to understand current setup
+                console.log('Reading package.json...');
+                const packageContent = await this.readFile({ filePath: 'package.json' });
+                analysisResult += `**Current Package Configuration:**\n\`\`\`json\n${packageContent}\n\`\`\`\n\n`;
+                
+                // 3. Check for existing MCP-related files
+                console.log('Searching for MCP-related content...');
+                const mcpSearch = await this.searchFiles({ query: 'mcp|MCP', filePattern: '**/*' });
+                analysisResult += `**MCP-Related Content Found:**\n${mcpSearch}\n\n`;
+                
+                // 4. Check VS Code extension specific files
+                console.log('Checking VS Code extension files...');
+                const srcFiles = await this.listFiles({ dirPath: 'src' });
+                analysisResult += `**Source Files:**\n${srcFiles}\n\n`;
+                
+                // 5. Provide specific recommendations
+                analysisResult += `**Recommendations for MCP Integration:**\n\n`;
+                analysisResult += `1. **Add MCP Dependencies**: Add MCP client libraries to package.json\n`;
+                analysisResult += `2. **Create MCP Service**: Create a new service class to handle MCP server communication\n`;
+                analysisResult += `3. **Update Extension Activation**: Modify extension.ts to initialize MCP connections\n`;
+                analysisResult += `4. **Add Configuration**: Add MCP server settings to package.json configuration\n\n`;
+                analysisResult += `Would you like me to implement any of these specific steps?`;
+                
+                await this.sendAssistantMessage(analysisResult);
+                return true;
+                
+            } catch (error) {
+                console.error('Error in direct action analysis:', error);
+                await this.sendAssistantMessage(`I tried to analyze your project but encountered an error: ${error}. Let me try a different approach.`);
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
     private enhanceMessageWithToolHints(message: string): string {
         const lowerMessage = message.toLowerCase();
         
-        // Common patterns that should trigger tool usage
+        // Directory/folder creation
         if (lowerMessage.includes('create') && (lowerMessage.includes('folder') || lowerMessage.includes('directory'))) {
             return `${message}
 
@@ -264,22 +564,55 @@ Parameters: {"dirPath": "directory-name-here"}
 [/TOOL]`;
         }
         
-        if (lowerMessage.includes('read') && lowerMessage.includes('file')) {
+        // File reading requests
+        if ((lowerMessage.includes('read') || lowerMessage.includes('show') || lowerMessage.includes('view')) && lowerMessage.includes('file')) {
             return `${message}
 
 IMPORTANT: The user wants you to actually read a file. You MUST use the read_file tool. Do not give suggestions - actually read it using the tool.`;
         }
         
+        // File listing requests
         if (lowerMessage.includes('list') && (lowerMessage.includes('files') || lowerMessage.includes('directory'))) {
             return `${message}
 
 IMPORTANT: The user wants you to actually list files. You MUST use the list_files tool. Do not give suggestions - actually list them using the tool.`;
         }
         
+        // Search requests
         if (lowerMessage.includes('search') || lowerMessage.includes('find')) {
             return `${message}
 
 IMPORTANT: The user wants you to actually search. You MUST use the search_files tool. Do not give suggestions - actually search using the tool.`;
+        }
+        
+        // Project analysis/extension requests
+        if (lowerMessage.includes('extend') || lowerMessage.includes('analyze') || lowerMessage.includes('project') || lowerMessage.includes('mcp')) {
+            return `${message}
+
+IMPORTANT: The user wants you to analyze and work with the actual project files. You MUST:
+1. First examine the project structure with list_files
+2. Read relevant configuration files (package.json, etc.)
+3. Search for existing patterns or dependencies
+4. Then provide specific implementation steps
+
+Start by using these tools to understand the current project:
+[TOOL: list_files]
+Parameters: {"dirPath": "."}
+[/TOOL]
+
+[TOOL: read_file]
+Parameters: {"filePath": "package.json"}
+[/TOOL]`;
+        }
+        
+        // Workspace exploration requests
+        if (lowerMessage.includes('what') && (lowerMessage.includes('files') || lowerMessage.includes('structure') || lowerMessage.includes('project'))) {
+            return `${message}
+
+IMPORTANT: The user wants to explore the workspace. You MUST use tools to examine the actual files:
+[TOOL: list_files]
+Parameters: {"dirPath": "."}
+[/TOOL]`;
         }
         
         return message;
@@ -364,6 +697,10 @@ IMPORTANT: The user wants you to actually search. You MUST use the search_files 
                     return this.getOpenEditors();
                     
                 default:
+                    // Check if it's an MCP tool
+                    if (toolName.startsWith('mcp_')) {
+                        return await this.executeMcpTool(toolName, params);
+                    }
                     return `[Error: Unknown tool '${toolName}']`;
             }
         } catch (error: any) {
@@ -606,6 +943,45 @@ IMPORTANT: The user wants you to actually search. You MUST use the search_files 
         );
 
         return `[Currently Open Files]\\n${relativePaths.join('\\n')}`;
+    }
+
+    private async executeMcpTool(toolName: string, params: any): Promise<string> {
+        try {
+            // Parse MCP tool name: mcp_<server>_<tool>
+            const parts = toolName.split('_');
+            if (parts.length < 3) {
+                return `[Error: Invalid MCP tool name format: ${toolName}]`;
+            }
+            
+            const serverName = parts[1];
+            const actualToolName = parts.slice(2).join('_');
+            
+            console.log(`Executing MCP tool: ${actualToolName} on server: ${serverName}`);
+            
+            // Check if server is connected
+            if (!this.mcpService.isServerConnected(serverName)) {
+                return `[Error: MCP server '${serverName}' is not connected]`;
+            }
+            
+            // Call the MCP tool
+            const result = await this.mcpService.callTool(serverName, actualToolName, params);
+            
+            return `[MCP Tool Result from ${serverName}]\\n${JSON.stringify(result, null, 2)}`;
+        } catch (error: any) {
+            return `[Error executing MCP tool ${toolName}: ${error.message}]`;
+        }
+    }
+
+    public async dispose() {
+        // Clean up MCP service when provider is disposed
+        if (this.mcpService) {
+            await this.mcpService.disconnect();
+        }
+        
+        // Clean up multi-agent orchestrator
+        if (this.multiAgentOrchestrator) {
+            this.multiAgentOrchestrator.dispose();
+        }
     }
 
     protected getQuickActions(): string {

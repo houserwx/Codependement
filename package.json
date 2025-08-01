@@ -4,6 +4,11 @@
   "description": "Chat with locally hosted Ollama LLM models with ask and agent modes",
   "version": "0.0.1",
   "publisher": "recurse-studios",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/recurse-studios/codependement.git"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.102.0"
   },
@@ -33,6 +38,16 @@
       {
         "command": "codependent.selectModel",
         "title": "Select Model",
+        "category": "CoDependement"
+      },
+      {
+        "command": "codependent.refreshMcp",
+        "title": "Refresh MCP Tools",
+        "category": "CoDependement"
+      },
+      {
+        "command": "codependent.showMultiAgentStatus",
+        "title": "Show Multi-Agent Status",
         "category": "CoDependement"
       }
     ],
@@ -76,6 +91,55 @@
           "type": "number",
           "default": 2048,
           "description": "Maximum tokens for model responses"
+        },
+        "codependent.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "MCP servers configuration",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the MCP server"
+              },
+              "command": {
+                "type": "string", 
+                "description": "Command to start the MCP server"
+              },
+              "args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Arguments for the MCP server command"
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables for the MCP server"
+              }
+            }
+          }
+        },
+        "codependent.enableMcp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable MCP server integration"
+        },
+        "codependent.enableMultiAgent": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable multi-agent processing for complex tasks"
+        },
+        "codependent.agentCollaboration": {
+          "type": "string",
+          "enum": ["sequential", "parallel", "hierarchical"],
+          "default": "sequential",
+          "description": "How agents collaborate on tasks"
+        },
+        "codependent.multiAgentThreshold": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "default": "medium", 
+          "description": "Complexity threshold for triggering multi-agent processing"
         }
       }
     }
@@ -110,6 +174,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "axios": "^1.11.0"
+    "axios": "^1.11.0",
+    "@modelcontextprotocol/sdk": "^1.17.1"
   }
 }
