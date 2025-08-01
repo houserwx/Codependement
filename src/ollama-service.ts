@@ -46,12 +46,23 @@ export class OllamaService {
 
     private getMaxTokens(): number {
         const config = vscode.workspace.getConfiguration('codependent');
-        return config.get<number>('maxTokens', 2048);
+        return config.get<number>('maxTokens', 32768);
     }
 
     private getContextBufferSize(): number {
         const config = vscode.workspace.getConfiguration('codependent');
-        return config.get<number>('contextBufferSize', 32768);
+        const contextBufferSize = config.get<number>('contextBufferSize', 65536);
+        const maxTokens = config.get<number>('maxTokens', 32768);
+        
+        // Ensure context buffer size is at least 1.5x the max tokens
+        const minBufferSize = Math.max(maxTokens * 1.5, 2048);
+        
+        if (contextBufferSize < minBufferSize) {
+            console.warn(`Context buffer size (${contextBufferSize}) is too small for max tokens (${maxTokens}). Using minimum: ${minBufferSize}`);
+            return minBufferSize;
+        }
+        
+        return contextBufferSize;
     }
 
     private estimateTokenCount(text: string): number {
@@ -74,8 +85,17 @@ export class OllamaService {
         const availableTokens = contextBufferSize - maxTokens;
         
         if (availableTokens <= 0) {
-            console.warn('Context buffer size is too small for the max tokens setting');
-            return messages.slice(-1); // Return only the last message
+            console.error(`Context buffer size (${contextBufferSize}) is too small for max tokens (${maxTokens}). Please increase context buffer size in settings.`);
+            // Show user notification
+            vscode.window.showWarningMessage(
+                `Context buffer size is too small. Please increase it in settings to at least ${maxTokens * 1.5} tokens.`,
+                'Open Settings'
+            ).then(selection => {
+                if (selection === 'Open Settings') {
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'codependent.contextBufferSize');
+                }
+            });
+            return messages.slice(-1); // Return only the last message as fallback
         }
 
         // Always keep system messages (they're usually first)

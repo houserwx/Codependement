@@ -54,6 +54,11 @@
         "command": "codependent.requestCopilotModification",
         "title": "Request GitHub Copilot Chat Modification",
         "category": "CoDependement"
+      },
+      {
+        "command": "codependent.validateConfiguration",
+        "title": "Validate Configuration",
+        "category": "CoDependement"
       }
     ],
     "menus": {
@@ -72,6 +77,9 @@
         },
         {
           "command": "codependent.requestCopilotModification"
+        },
+        {
+          "command": "codependent.validateConfiguration"
         }
       ]
     },
@@ -97,15 +105,15 @@
         },
         "codependent.maxTokens": {
           "type": "number",
-          "default": 65536,
+          "default": 32768,
           "description": "Maximum tokens for model responses"
         },
         "codependent.contextBufferSize": {
           "type": "number",
-          "default": 32768,
-          "minimum": 1024,
+          "default": 65536,
+          "minimum": 2048,
           "maximum": 131072,
-          "description": "Context buffer size for conversation history and agent memory (in tokens)"
+          "description": "Context buffer size for conversation history and agent memory (in tokens). Should be larger than maxTokens."
         },
         "codependent.mcpServers": {
           "type": "array",

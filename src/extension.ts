@@ -4,12 +4,14 @@ import { AskModeChatProvider } from './ask-mode-provider';
 import { AgentModeChatProvider } from './agent-mode-provider';
 import { GeneralChatProvider } from './general-chat-provider';
 import { CopilotChatService } from './copilot-chat-service';
+import { ConfigurationValidator } from './configuration-validator';
 
 let ollamaService: OllamaService;
 let askModeProvider: AskModeChatProvider;
 let agentModeProvider: AgentModeChatProvider;
 let generalChatProvider: GeneralChatProvider;
 let copilotChatService: CopilotChatService;
+let configValidator: ConfigurationValidator;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('=== CoDependement extension ACTIVATION START ===');
@@ -22,6 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
     agentModeProvider = new AgentModeChatProvider(context);
     generalChatProvider = new GeneralChatProvider(context);
     copilotChatService = new CopilotChatService();
+    configValidator = new ConfigurationValidator();
 
     // Register commands
     const openChatCommand = vscode.commands.registerCommand('codependent.openChat', () => {
@@ -244,6 +247,17 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
+    const validateConfigurationCommand = vscode.commands.registerCommand('codependent.validateConfiguration', async () => {
+        console.log('=== VALIDATE CONFIGURATION COMMAND TRIGGERED ===');
+        try {
+            const result = configValidator.validateConfiguration();
+            await configValidator.showValidationResults(result);
+        } catch (error) {
+            console.error('Error validating configuration:', error);
+            vscode.window.showErrorMessage('Failed to validate configuration');
+        }
+    });
+
     // Register configuration change handler
     const configChangeHandler = vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration('codependent')) {
@@ -261,6 +275,22 @@ export function activate(context: vscode.ExtensionContext) {
     // Check Ollama availability on startup
     checkOllamaStatus();
 
+    // Validate configuration on startup
+    setTimeout(() => {
+        const result = configValidator.validateConfiguration();
+        if (!result.isValid) {
+            vscode.window.showWarningMessage(
+                'CoDependement configuration has issues that may affect performance.',
+                'Validate Configuration',
+                'Ignore'
+            ).then(selection => {
+                if (selection === 'Validate Configuration') {
+                    vscode.commands.executeCommand('codependent.validateConfiguration');
+                }
+            });
+        }
+    }, 2000); // Wait 2 seconds after activation
+
     // Register all disposables
     context.subscriptions.push(
         openChatCommand,
@@ -271,6 +301,7 @@ export function activate(context: vscode.ExtensionContext) {
         refreshMcpCommand,
         showMultiAgentStatusCommand,
         requestCopilotModificationCommand,
+        validateConfigurationCommand,
         configChangeHandler,
         statusBarItem
     );
